@@ -6,7 +6,7 @@ plugins {
 }
 
 group = '_1ms'
-version = '1.6'
+version = '1.7'
 
 repositories {
     mavenCentral()
@@ -67,6 +67,7 @@ def generateTemplates = tasks.register('generateTemplates', Copy) { task ->
 }
 
 shadowJar {
+    archiveClassifier.set('')
     minimize()
     relocate 'org.bstats', 'libs'
     from(rootProject.file('LICENSE')) {
@@ -78,3 +79,6 @@ shadowJar {
 sourceSets.main.java.srcDir(generateTemplates.map { it.outputs })
 
 rootProject.idea.project.settings.taskTriggers.afterSync generateTemplates
+
+jar { enabled = false }
+assemble { dependsOn shadowJar }

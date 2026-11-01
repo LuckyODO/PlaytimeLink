@@ -23,33 +23,30 @@ import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
 public final class Main extends JavaPlugin {
 
     public final HashMap<Long, String> rewardsH = new HashMap<>();
+    private final RewardTracker rewardTracker = new RewardTracker();
     public RequestSender requestSender;
     public PlaceholderAPI placeholderAPI;
     public UpdateHandler updateHandler;
     @Getter
-    private final String loadingMsg = getConfig().getString("Messages.LOADING");
+    private String loadingMsg;
     @Getter
-    private final String notfoundMsg = getConfig().getString("Messages.NOT_IN_TOPLIST");
+    private String notfoundMsg;
 
     @Override
     public void onEnable() {
-        InitInstances();
         saveDefaultConfig();
-        checkAndUpdateConfig(Paths.get(getDataFolder()+ File.separator+"config.yml"));
-        requestSender.runPlaytimeUpdates();
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+        loadingMsg = getConfig().getString("Messages.LOADING", "loading...");
+        notfoundMsg = getConfig().getString("Messages.NOT_IN_TOPLIST", "Not in toplist");
+        InitInstances();
         final boolean isUpdate = getConfig().getBoolean("Data.CHECK_FOR_UPDATES");
         if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
             placeholderAPI.register();
@@ -61,6 +58,7 @@ public final class Main extends JavaPlugin {
         }
         getServer().getMessenger().registerIncomingPluginChannel(this, "velocity:playtime", requestSender);
         getServer().getMessenger().registerOutgoingPluginChannel(this, "velocity:playtime");
+        requestSender.runPlaytimeUpdates();
         if (isUpdate)
             Thread.ofVirtual().start(updateHandler::checkForUpdates);
         final ConfigurationSection confSec = getConfig().getConfigurationSection("Rewards");
@@ -70,23 +68,12 @@ public final class Main extends JavaPlugin {
                     rewardsH.put(Long.valueOf(key), getConfig().getString("Rewards." + key))
             );
 
-            Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-                final HashMap<String, String> cmdAndPlayer = new HashMap<>();
-
-                rewardsH.forEach((key, command) -> {
-                    final HashMap<String, Long> hashToUse = requestSender.isReqTopList() ? requestSender.getPttop() : requestSender.getPlaytime();
-                    hashToUse.forEach((player, val) -> {
-                        try {
-                            if(!Objects.requireNonNull(Bukkit.getPlayer(player)).isPermissionSet("vptlink.rewards.exempt") && Objects.equals(key, val))
-                                cmdAndPlayer.put(command, player);
-                        } catch (Exception ignored) {}
-                    });
-                });
-
-                if (!cmdAndPlayer.isEmpty()) {
-                    Bukkit.getScheduler().runTask(this, () ->
-                            cmdAndPlayer.forEach((key, value) -> Bukkit.dispatchCommand(getServer().getConsoleSender(), key.replace("%player%", value)))
-                    );
+            Bukkit.getScheduler().runTaskTimer(this, () -> {
+                for(var player : getServer().getOnlinePlayers()) {
+                    var commands = rewardTracker.update(player.getName(), requestSender.getPlayTime(player.getName()), rewardsH);
+                    if(player.hasPermission("vptlink.rewards.exempt")) continue;
+                    for(String command : commands)
+                        Bukkit.dispatchCommand(getServer().getConsoleSender(), command.replace("%player%", player.getName()));
                 }
             }, 0, 20);
         }
@@ -100,26 +87,9 @@ public final class Main extends JavaPlugin {
         updateHandler = new UpdateHandler(this);
     }
 
-    public static void checkAndUpdateConfig(Path path) {
-        try {
-            final List<String> lines = Files.readAllLines(path);
-            if(lines.get(1).contains("3"))
-                return;
-            if (!lines.get(1).contains("file-version")) {
-                lines.add(1, "file-version: 3");
-                lines.add(4, "  NOT_IN_TOPLIST: \"Not in toplist\"");
-
-                lines.add("#Same as in the main plugin. ([space]'time in millisecs': cmd) (ex: '10000': say hello)");
-                lines.add("Rewards:");
-            } else {
-                lines.remove(1);
-                lines.add(1, "file-version: 3");
-                lines.add(4, "  NOT_IN_TOPLIST: \"Not in toplist\"");
-            }
-            Files.write(path, lines);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+    @Override
+    public void onDisable() {
+        if(requestSender != null) requestSender.close();
+        if(placeholderAPI != null) placeholderAPI.unregister();
     }
-
 }
