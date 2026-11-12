@@ -22,6 +22,7 @@ import org.bstats.charts.SimplePie;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.HashMap;
 import java.util.Objects;
@@ -31,6 +32,7 @@ public final class Main extends JavaPlugin {
 
     public final HashMap<Long, String> rewardsH = new HashMap<>();
     private final RewardTracker rewardTracker = new RewardTracker();
+    private FileConfiguration loadedConfig;
     public RequestSender requestSender;
     public PlaceholderAPI placeholderAPI;
     public UpdateHandler updateHandler;
@@ -42,8 +44,7 @@ public final class Main extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        getConfig().options().copyDefaults(true);
-        saveConfig();
+        reloadConfig();
         loadingMsg = getConfig().getString("Messages.LOADING", "loading...");
         notfoundMsg = getConfig().getString("Messages.NOT_IN_TOPLIST", "Not in toplist");
         InitInstances();
@@ -85,6 +86,22 @@ public final class Main extends JavaPlugin {
         requestSender = new RequestSender(this);
         placeholderAPI = new PlaceholderAPI(requestSender, this);
         updateHandler = new UpdateHandler(this);
+    }
+
+    @Override
+    public void reloadConfig() {
+        try {
+            loadedConfig = SafeConfiguration.load(getDataFolder().toPath().resolve("config.yml"),
+                    Objects.requireNonNull(getResource("config.yml")));
+        } catch(java.io.IOException | org.bukkit.configuration.InvalidConfigurationException failure) {
+            throw new IllegalStateException("Cannot read PlaytimeLink config.yml; original file retained", failure);
+        }
+    }
+
+    @Override
+    public FileConfiguration getConfig() {
+        if(loadedConfig == null) reloadConfig();
+        return loadedConfig;
     }
 
     @Override
